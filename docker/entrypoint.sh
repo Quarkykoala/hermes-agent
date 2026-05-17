@@ -65,6 +65,21 @@ source "${INSTALL_DIR}/.venv/bin/activate"
 # ssh, gh, npm …).  Without it those tools write to /root which is
 # ephemeral and shared across profiles.  See issue #4426.
 mkdir -p "$HERMES_HOME"/{cron,sessions,logs,hooks,memories,skills,skins,plans,workspace,home}
+mkdir -p "$HERMES_HOME/shared"
+
+# Optional secret-backed auth restore for hosted deployments. This lets
+# Railway keep OAuth credentials in environment secrets while Hermes still
+# sees the normal volume-backed auth files it expects.
+if [ -n "${HERMES_AUTH_JSON_B64:-}" ]; then
+    printf '%s' "$HERMES_AUTH_JSON_B64" | base64 -d > "$HERMES_HOME/auth.json.tmp"
+    mv "$HERMES_HOME/auth.json.tmp" "$HERMES_HOME/auth.json"
+    chmod 600 "$HERMES_HOME/auth.json" 2>/dev/null || true
+fi
+if [ -n "${HERMES_NOUS_SHARED_AUTH_JSON_B64:-}" ]; then
+    printf '%s' "$HERMES_NOUS_SHARED_AUTH_JSON_B64" | base64 -d > "$HERMES_HOME/shared/nous_auth.json.tmp"
+    mv "$HERMES_HOME/shared/nous_auth.json.tmp" "$HERMES_HOME/shared/nous_auth.json"
+    chmod 600 "$HERMES_HOME/shared/nous_auth.json" 2>/dev/null || true
+fi
 
 # .env
 if [ ! -f "$HERMES_HOME/.env" ]; then
@@ -107,6 +122,8 @@ data["provider_routing"] = {
 
 data["fallback_providers"] = [
     {"provider": "deepseek", "model": "deepseek-v4-pro"},
+    {"provider": "nous", "model": "hermes-3-405b"},
+    {"provider": "nous", "model": "hermes-3-70b"},
     {"provider": "openrouter", "model": "minimax/minimax-m2.7"},
 ]
 data.pop("fallback_model", None)
@@ -134,6 +151,25 @@ vision = auxiliary.setdefault("vision", {})
 vision["provider"] = "openrouter"
 vision["model"] = "nvidia/nemotron-nano-12b-v2-vl:free"
 vision["extra_body"] = {"reasoning": {"enabled": False}}
+
+# Nous Plus subscription: use the hosted Tool Gateway for capabilities that
+# otherwise need separate paid keys. Keep model inference on DeepSeek by
+# default; use Nous as an escalation/fallback provider above.
+if os.environ.get("HERMES_ENABLE_NOUS_GATEWAY", "").lower() in {"1", "true", "yes", "on"}:
+    web = data.setdefault("web", {})
+    web["backend"] = "firecrawl"
+    web["use_gateway"] = True
+
+    image_gen = data.setdefault("image_gen", {})
+    image_gen["use_gateway"] = True
+
+    tts = data.setdefault("tts", {})
+    tts["provider"] = "openai"
+    tts["use_gateway"] = True
+
+    browser = data.setdefault("browser", {})
+    browser["cloud_provider"] = "browser-use"
+    browser["use_gateway"] = True
 
 delegation = data.setdefault("delegation", {})
 delegation["provider"] = "openrouter"
