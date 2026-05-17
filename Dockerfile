@@ -81,22 +81,18 @@ RUN uv sync --frozen --no-install-project --extra all
 # ---------- Source code ----------
 # .dockerignore excludes node_modules, so the installs above survive.
 COPY --chown=hermes:hermes . .
+RUN sed -i 's/\r$//' /opt/hermes/docker/entrypoint.sh && chmod +x /opt/hermes/docker/entrypoint.sh
 
 # Build browser dashboard and terminal UI assets.
 RUN cd web && npm run build && \
     cd ../ui-tui && npm run build
 
 # ---------- Permissions ----------
-# Make install dir world-readable so any HERMES_UID can read it at runtime.
-# The venv needs to be traversable too.
-# node_modules trees additionally need to be writable by the hermes user
-# so the runtime `npm install` triggered by _tui_need_npm_install() in
-# hermes_cli/main.py succeeds (see #18800). /opt/hermes/web is build-time
-# only (HERMES_WEB_DIST points at hermes_cli/web_dist) and is intentionally
-# not chowned here.
+# Keep Railway builds from spending minutes walking large dependency trees.
+# The gateway runtime only needs the entrypoint executable; files copied into
+# the image are already world-readable/traversable by default.
 USER root
-RUN chmod -R a+rX /opt/hermes && \
-    chown -R hermes:hermes /opt/hermes/ui-tui /opt/hermes/node_modules
+RUN sed -i 's/\r$//' /opt/hermes/docker/entrypoint.sh && chmod +x /opt/hermes/docker/entrypoint.sh
 # Start as root so the entrypoint can usermod/groupmod + gosu.
 # If HERMES_UID is unset, the entrypoint drops to the default hermes user (10000).
 
@@ -109,5 +105,5 @@ RUN uv pip install --no-cache-dir --no-deps -e "."
 ENV HERMES_WEB_DIST=/opt/hermes/hermes_cli/web_dist
 ENV HERMES_HOME=/opt/data
 ENV PATH="/opt/data/.local/bin:${PATH}"
-VOLUME [ "/opt/data" ]
 ENTRYPOINT [ "/usr/bin/tini", "-g", "--", "/opt/hermes/docker/entrypoint.sh" ]
+CMD [ "gateway", "run" ]
